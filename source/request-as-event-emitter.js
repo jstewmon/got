@@ -103,13 +103,13 @@ module.exports = (options = {}) => {
 				return;
 			}
 
-			setImmediate(() => {
+			// setImmediate(() => {
 				try {
 					getResponse(response, options, emitter, redirects);
 				} catch (error) {
 					emitter.emit('error', error);
 				}
-			});
+			// });
 		});
 
 		cacheReq.on('error', error => {
@@ -200,9 +200,9 @@ module.exports = (options = {}) => {
 				timedOut(req, options.gotTimeout);
 			}
 
-			setImmediate(() => {
+			// setImmediate(() => {
 				emitter.emit('request', req);
-			});
+			// });
 		});
 	};
 

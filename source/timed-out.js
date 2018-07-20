@@ -6,6 +6,8 @@ module.exports = function (req, delays) {
 	if (req.timeoutTimer) {
 		return req;
 	}
+	let requestImmediate;
+	let connectImmediate;
 
 	const host = req._headers ? (' to ' + req._headers.host) : '';
 
@@ -16,26 +18,30 @@ module.exports = function (req, delays) {
 		req.emit('error', e);
 	}
 
-	function throwETIMEDOUT() {
+	function throwETIMEDOUT(code = 'ETIMEDOUT') {
 		req.abort();
 		const e = new Error('Connection timed out on request' + host);
-		e.code = 'ETIMEDOUT';
+		e.code = code;
 		req.emit('error', e);
 	}
 
 	if (delays.connect !== undefined) {
-		req.timeoutTimer = setTimeout(throwETIMEDOUT, delays.connect);
+		req.timeoutTimer = setTimeout(() => {
+			connectImmediate = setImmediate(throwETIMEDOUT, 'connect timeout');
+		}, delays.connect);
 	}
 
 	if (delays.request !== undefined) {
 		req.requestTimeoutTimer = setTimeout(() => {
-			clear();
-
-			if (req.connection.connecting) {
-				throwETIMEDOUT();
-			} else {
-				throwESOCKETTIMEDOUT();
-			}
+			requestImmediate = setImmediate(() => {
+				clear();
+				// throwETIMEDOUT('request timeout');
+				if (req.connection.connecting) {
+					throwETIMEDOUT('request timeout');
+				} else {
+					throwESOCKETTIMEDOUT();
+				}
+			})
 		}, delays.request);
 	}
 
@@ -48,7 +54,10 @@ module.exports = function (req, delays) {
 			return;
 		}
 
-		socket.once('connect', connect);
+		socket.once('connect', () => {
+			clearImmediate(connectImmediate);
+			connect();
+		});
 	});
 
 	function clear() {
@@ -71,6 +80,7 @@ module.exports = function (req, delays) {
 			res.on('end', () => {
 				// The request is finished, cancel request timeout.
 				clearTimeout(req.requestTimeoutTimer);
+				clearImmediate(requestImmediate);
 			});
 		});
 	}

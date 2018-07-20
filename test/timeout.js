@@ -1,12 +1,16 @@
+import fs from 'fs';
+import zlib from 'zlib';
 import getStream from 'get-stream';
 import test from 'ava';
 import pEvent from 'p-event';
 import delay from 'delay';
 import got from '../source';
 import {createServer} from './helpers/server';
+import { resolve } from 'dns';
 
 let s;
 const reqDelay = 160;
+const loadDelay = 6;
 
 test.before('setup', async () => {
 	s = await createServer();
@@ -16,8 +20,62 @@ test.before('setup', async () => {
 		res.statusCode = 200;
 		res.end('OK');
 	});
+	s.on('/load', async (req, res) => {
+		// await delay(loadDelay);
+		res.statusCode = 200;
+		res.setHeader('content-encoding', 'gzip');
+		fs.createReadStream(`${__dirname}/random.bin.gz`)
+			// .pipe(new zlib.Gzip())
+			.pipe(res);
+	})
 
 	await s.listen(s.port);
+});
+
+test.only('timeout under load', async t => {
+	const limit = 3000;
+	let passCount = 0;
+	let failCount = 0;
+	const failures = [];
+	const pending = [];
+	let gatherCallback;
+	const gatherPromise = new Promise(
+		(resolve) => {
+			gatherCallback = resolve;
+		}
+	)
+	const interval = setInterval(
+		() => {
+			const req = got(`${s.url}/load`, {
+				retry: 0,
+				timeout: {
+					connect: 75,
+					// socket:  50,
+					request: 75
+				}
+			})
+			pending.push(req);
+			if (pending.length === limit) {
+				clearInterval(interval);
+				gatherCallback();
+			}
+		},
+		3
+	);
+	await gatherPromise;
+	for (let i = 0; i < pending.length; i++) {
+		try {
+			await pending[i];
+			passCount++;
+		} catch (err) {
+			failCount++;
+			failures.push([i, err])
+		}
+	}
+	console.log(`pass / fail: ${passCount} / ${failCount}`);
+	console.log(`failure rate: ${failCount / pending.length}`);
+	console.log(`failed positions: ${JSON.stringify(failures.map(f => f[0]))}`);
+	t.pass();
 });
 
 test('timeout option (ETIMEDOUT)', async t => {
